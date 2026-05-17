@@ -1,19 +1,13 @@
 import { prisma } from '../index.js';
 
-interface SlidingWindow {
-  timestamps: number[];
-}
-
-const windows: Map<string, SlidingWindow> = new Map();
-const CLEANUP_INTERVAL = 60_000;
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, w] of windows) {
-    w.timestamps = w.timestamps.filter(t => now - t < 86400_000);
-    if (w.timestamps.length === 0) windows.delete(key);
-  }
-}, CLEANUP_INTERVAL);
+// BUG #7 FIX: Rate limiting is now DB-backed by querying MessageLog counts
+// instead of using an in-memory map. This means rate limits persist across
+// server restarts, crashes, and deploys. The MessageLog is the single source
+// of truth for how many messages were sent in each time window.
+//
+// Trade-off: each sendWhatsAppMessage call now makes 3 DB count queries.
+// For a small PG management app this is acceptable. If performance becomes
+// an issue, add a Redis layer in front of these counts.
 
 function getLimits(userId: string): Promise<{ maxPerMinute: number; maxPerHour: number; maxPerDay: number }> {
   return prisma.messageLimit.upsert({
@@ -26,19 +20,24 @@ function getLimits(userId: string): Promise<{ maxPerMinute: number; maxPerHour: 
 
 export async function checkRateLimit(userId: string): Promise<{ allowed: boolean; reason?: string }> {
   const limits = await getLimits(userId);
-  const now = Date.now();
-  let w = windows.get(userId);
-  if (!w) {
-    w = { timestamps: [] };
-    windows.set(userId, w);
-  }
-  w.timestamps = w.timestamps.filter(t => now - t < 86400_000);
+  const now = new Date();
 
-  const oneMinuteAgo = now - 60_000;
-  const oneHourAgo = now - 3600_000;
-  const minuteCount = w.timestamps.filter(t => t > oneMinuteAgo).length;
-  const hourCount = w.timestamps.filter(t => t > oneHourAgo).length;
-  const dayCount = w.timestamps.length;
+  const oneMinuteAgo = new Date(now.getTime() - 60_000);
+  const oneHourAgo = new Date(now.getTime() - 3_600_000);
+  const oneDayAgo = new Date(now.getTime() - 86_400_000);
+
+  // Count only SENT + PENDING messages (not FAILEDs caused by rate limiting itself)
+  const [minuteCount, hourCount, dayCount] = await Promise.all([
+    prisma.messageLog.count({
+      where: { ownerId: userId, sentAt: { gte: oneMinuteAgo }, status: { in: ['SENT', 'PENDING'] } },
+    }),
+    prisma.messageLog.count({
+      where: { ownerId: userId, sentAt: { gte: oneHourAgo }, status: { in: ['SENT', 'PENDING'] } },
+    }),
+    prisma.messageLog.count({
+      where: { ownerId: userId, sentAt: { gte: oneDayAgo }, status: { in: ['SENT', 'PENDING'] } },
+    }),
+  ]);
 
   if (minuteCount >= limits.maxPerMinute) {
     return { allowed: false, reason: `Max ${limits.maxPerMinute} messages per minute reached` };
@@ -50,6 +49,5 @@ export async function checkRateLimit(userId: string): Promise<{ allowed: boolean
     return { allowed: false, reason: `Max ${limits.maxPerDay} messages per day reached` };
   }
 
-  w.timestamps.push(now);
   return { allowed: true };
 }

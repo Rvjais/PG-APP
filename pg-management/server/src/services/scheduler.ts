@@ -9,6 +9,8 @@ export function startScheduler(): void {
     processScheduledReminders().catch((err) => console.error('Fixed date reminder error:', err));
   });
 
+  // BUG #9 FIX: runs every 5 min, but sendSingleReminder now checks
+  // lastSentAt on the reminder before sending to prevent duplicates.
   cron.schedule('*/5 * * * *', () => {
     checkRelativeReminders().catch((err) => console.error('Relative reminder error:', err));
   });
@@ -35,6 +37,18 @@ async function processScheduledReminders(): Promise<void> {
     for (const reminder of reminders) {
       const tv = parseInt(reminder.triggerValue);
       if (isNaN(tv) || tv !== dayOfMonth) continue;
+
+      // BUG #9 FIX: check if this reminder already fired today
+      if (reminder.lastSentAt) {
+        const lastSentDay = new Date(reminder.lastSentAt);
+        lastSentDay.setHours(0, 0, 0, 0);
+        const todayStart = new Date(today);
+        todayStart.setHours(0, 0, 0, 0);
+        if (lastSentDay.getTime() === todayStart.getTime()) {
+          console.log(`Reminder ${reminder.id} already sent today, skipping.`);
+          continue;
+        }
+      }
 
       await sendReminderToTenants(reminder);
     }
@@ -63,6 +77,15 @@ async function checkRelativeReminders(): Promise<void> {
       const daysOffset = parseInt(reminder.triggerValue);
       if (isNaN(daysOffset)) continue;
 
+      // BUG #9 FIX: skip if this reminder already fired today
+      if (reminder.lastSentAt) {
+        const lastSentDay = new Date(reminder.lastSentAt);
+        lastSentDay.setHours(0, 0, 0, 0);
+        if (lastSentDay.getTime() === today.getTime()) {
+          continue; // Already processed today — skip all 5-min ticks
+        }
+      }
+
       const tenantsWhere: any = {
         isActive: true,
         ownerId: reminder.ownerId,
@@ -74,6 +97,8 @@ async function checkRelativeReminders(): Promise<void> {
 
       const tenants = await prisma.tenant.findMany({ where: tenantsWhere });
 
+      let didSendToAnyone = false;
+
       for (const tenant of tenants) {
         if (!tenant.joinDate) continue;
 
@@ -84,6 +109,15 @@ async function checkRelativeReminders(): Promise<void> {
         if (targetDate.getTime() !== today.getTime()) continue;
 
         await sendSingleReminder(reminder, tenant);
+        didSendToAnyone = true;
+      }
+
+      // Update lastSentAt on the reminder so subsequent cron ticks skip it
+      if (didSendToAnyone) {
+        await prisma.scheduledReminder.update({
+          where: { id: reminder.id },
+          data: { lastSentAt: new Date() },
+        });
       }
     }
   } catch (error) {
@@ -110,6 +144,14 @@ async function sendReminderToTenants(reminder: any): Promise<void> {
 
   for (const tenant of tenants) {
     await sendSingleReminder(reminder, tenant, user?.name);
+  }
+
+  // Mark this reminder as sent today (BUG #9 FIX)
+  if (tenants.length > 0) {
+    await prisma.scheduledReminder.update({
+      where: { id: reminder.id },
+      data: { lastSentAt: new Date() },
+    });
   }
 }
 
@@ -202,6 +244,12 @@ export async function triggerReminderNow(reminderId: string): Promise<{ sent: nu
       failed++;
     }
   }
+
+  // Update lastSentAt after manual trigger too
+  await prisma.scheduledReminder.update({
+    where: { id: reminderId },
+    data: { lastSentAt: new Date() },
+  });
 
   return { sent, failed };
 }

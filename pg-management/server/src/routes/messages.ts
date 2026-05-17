@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../index.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { sendWhatsAppMessage } from '../services/whatsapp.js';
+import { parseTemplate } from '../services/message.js';
 
 const router = Router();
 
@@ -16,18 +17,31 @@ router.post('/send', async (req: AuthRequest, res) => {
 
     const tenant = await prisma.tenant.findFirst({
       where: { id: tenantId, ownerId: req.userId },
+      include: { building: { select: { name: true } } },
     });
     if (!tenant) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const status = await sendWhatsAppMessage(req.userId!, tenant.phone, message, imageBase64);
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { name: true },
+    });
+
+    const parsedMessage = parseTemplate(
+      message,
+      tenant,
+      user?.name || 'Owner',
+      tenant.building?.name || 'Your PG'
+    );
+
+    const status = await sendWhatsAppMessage(req.userId!, tenant.phone, parsedMessage, imageBase64);
 
     await prisma.messageLog.create({
       data: {
         ownerId: req.userId!,
         tenantId: tenant.id,
-        messageContent: message,
+        messageContent: parsedMessage,
         imageData: imageBase64 || null,
         status,
       },
@@ -52,16 +66,33 @@ router.post('/bulk', async (req: AuthRequest, res) => {
     if (floor) { const f = parseInt(floor); if (!isNaN(f)) where.floor = f; }
     if (tenantIds && tenantIds.length > 0) where.id = { in: tenantIds };
 
-    const tenants = await prisma.tenant.findMany({ where });
+    const tenants = await prisma.tenant.findMany({ 
+      where,
+      include: { building: { select: { name: true } } },
+    });
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { name: true },
+    });
+
+    const ownerName = user?.name || 'Owner';
 
     const results = await Promise.allSettled(
       tenants.map(async (tenant) => {
-        const status = await sendWhatsAppMessage(req.userId!, tenant.phone, message, imageBase64);
+        const parsedMessage = parseTemplate(
+          message,
+          tenant,
+          ownerName,
+          tenant.building?.name || 'Your PG'
+        );
+
+        const status = await sendWhatsAppMessage(req.userId!, tenant.phone, parsedMessage, imageBase64);
         await prisma.messageLog.create({
           data: {
             ownerId: req.userId!,
             tenantId: tenant.id,
-            messageContent: message,
+            messageContent: parsedMessage,
             imageData: imageBase64 || null,
             status,
           },

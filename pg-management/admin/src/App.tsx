@@ -13,7 +13,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuthStore();
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b shadow-sm">
+      <header className="bg-white border-b shadow-sm" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0px)' }}>
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
           <h1 className="font-bold text-slate-800">PG Admin Panel</h1>
           <div className="flex items-center gap-4">

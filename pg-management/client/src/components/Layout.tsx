@@ -57,7 +57,7 @@ export default function Layout() {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="md:hidden bg-slate-900 text-white px-4 py-3 flex items-center justify-between sticky top-0 z-30">
+        <header className="md:hidden bg-slate-900 text-white px-4 flex items-center justify-between sticky top-0 z-30" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)', paddingBottom: '0.75rem' }}>
           <h1 className="text-lg font-bold">PG Manager</h1>
           <button
             onClick={() => setMobileMenuOpen(true)}
@@ -75,7 +75,7 @@ export default function Layout() {
               onClick={() => setMobileMenuOpen(false)}
             />
             <div className="absolute left-0 top-0 bottom-0 w-72 bg-slate-900 text-white flex flex-col">
-              <div className="p-4 border-b border-slate-700 flex items-center justify-between">
+              <div className="px-4 border-b border-slate-700 flex items-center justify-between" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1rem)', paddingBottom: '1rem' }}>
                 <div>
                   <h1 className="text-xl font-bold">PG Manager</h1>
                   <p className="text-sm text-slate-400 truncate">{user?.name}</p>

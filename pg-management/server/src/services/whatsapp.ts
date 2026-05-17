@@ -4,8 +4,16 @@ import { prisma } from '../index.js';
 import { checkRateLimit } from './rateLimiter.js';
 import pino from 'pino';
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const logger = pino({ level: 'warn' });
+
+// BUG #3 FIX: use an absolute path anchored to this file's location so it
+// works regardless of the process working directory (dev vs production).
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const AUTH_BASE_DIR = process.env.AUTH_DIR || path.join(__dirname, '../../auth');
 
 interface SocketData {
   sock: ReturnType<typeof makeWASocket> | null;
@@ -16,7 +24,7 @@ interface SocketData {
 const sockets: Map<string, SocketData> = new Map();
 
 function getAuthDir(userId: string): string {
-  return `./auth/${userId}`;
+  return path.join(AUTH_BASE_DIR, userId);
 }
 
 function clearAuthDir(userId: string): void {
@@ -48,7 +56,10 @@ export async function connectWhatsApp(userId: string, forceFresh?: boolean): Pro
   try {
     if (forceFresh) clearAuthDir(userId);
 
+    // Ensure auth directory exists with absolute path (BUG #3 FIX)
     const authDir = getAuthDir(userId);
+    fs.mkdirSync(authDir, { recursive: true });
+
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
 
     const sock = makeWASocket({
@@ -70,11 +81,12 @@ export async function connectWhatsApp(userId: string, forceFresh?: boolean): Pro
 
       if (connection === 'open') {
         sockets.set(userId, { sock, qrData: null, connectionStatus: 'connected' });
-        const serializedState = JSON.stringify(state, BufferJSON.replacer);
+        // BUG #8 FIX: session data is saved via creds.update event (saveCreds),
+        // here we only update the DB connected flag — not serialize stale state.
         await prisma.whatsAppSession.upsert({
           where: { userId },
-          update: { connected: true, sessionData: serializedState },
-          create: { userId, connected: true, sessionData: serializedState },
+          update: { connected: true },
+          create: { userId, connected: true, sessionData: '' },
         });
       }
 
@@ -99,6 +111,7 @@ export async function connectWhatsApp(userId: string, forceFresh?: boolean): Pro
       }
     });
 
+    // BUG #8 FIX: creds.update is the authoritative event for saving credentials.
     sock.ev.on('creds.update', saveCreds);
 
     return { status: 'connecting', qrData: undefined };
@@ -175,12 +188,21 @@ export async function sendWhatsAppMessage(
   }
 }
 
+// BUG #13 FIX: phone number formatter is no longer hardcoded to India (+91).
+// If the number already contains a country code prefix (length > 10 after
+// stripping non-digits), we use it as-is. Only 10-digit numbers without a
+// known country code fall back to the India prefix so existing behaviour is
+// preserved for users who have Indian tenants. Set PHONE_COUNTRY_CODE in .env
+// to override the default fallback country code.
 function formatPhoneNumber(phone: string): string {
   let cleaned = phone.replace(/[^\d]/g, '');
+  const fallbackCountryCode = process.env.PHONE_COUNTRY_CODE || '91';
 
-  if (!cleaned.startsWith('91') && cleaned.length === 10) {
-    cleaned = '91' + cleaned;
+  // If the number is exactly 10 digits it has no country code — prepend fallback
+  if (cleaned.length === 10) {
+    cleaned = fallbackCountryCode + cleaned;
   }
+  // Numbers already containing a country code (> 10 digits) are used as-is
 
   return cleaned + '@s.whatsapp.net';
 }

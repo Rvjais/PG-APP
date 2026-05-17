@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useCustomFieldStore, useAuthStore, useSettingsStore } from '../store';
-import { Plus, Pencil, Trash2, X, Database, Gauge } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, Database, Gauge, Save } from 'lucide-react';
 
 export default function Settings() {
   const { fields, fetchFields, createField, updateField, deleteField } = useCustomFieldStore();
-  const { user } = useAuthStore();
+  const { user, updateProfile } = useAuthStore();
   const { messageLimit, fetchMessageLimit, updateMessageLimit } = useSettingsStore();
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -16,6 +16,9 @@ export default function Settings() {
   });
   const [limitForm, setLimitForm] = useState({ maxPerMinute: 3, maxPerHour: 20, maxPerDay: 100 });
   const [limitSaving, setLimitSaving] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({ name: '', whatsappNumber: '' });
+  const [profileSaving, setProfileSaving] = useState(false);
 
   useEffect(() => {
     fetchFields();
@@ -88,6 +91,22 @@ export default function Settings() {
     setLimitSaving(false);
   };
 
+  const openEditProfile = () => {
+    setProfileForm({ name: user?.name || '', whatsappNumber: user?.whatsappNumber || '' });
+    setEditingProfile(true);
+  };
+
+  const handleSaveProfile = async () => {
+    setProfileSaving(true);
+    try {
+      await updateProfile(profileForm.name, profileForm.whatsappNumber || undefined);
+      setEditingProfile(false);
+    } catch {
+      alert('Failed to save profile');
+    }
+    setProfileSaving(false);
+  };
+
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">Settings</h1>
@@ -134,17 +153,67 @@ export default function Settings() {
 
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-xl shadow">
-            <h2 className="text-lg font-semibold mb-4">Account</h2>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-slate-500">Name</label>
-                <p className="font-medium">{user?.name}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-500">Email</label>
-                <p className="font-medium">{user?.email}</p>
-              </div>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Account</h2>
+              {!editingProfile && (
+                <button onClick={openEditProfile} className="flex items-center gap-1 text-sm text-blue-600 hover:underline">
+                  <Pencil size={14} /> Edit
+                </button>
+              )}
             </div>
+            {editingProfile ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
+                  <input
+                    type="text"
+                    value={profileForm.name}
+                    onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">WhatsApp Number</label>
+                  <input
+                    type="text"
+                    value={profileForm.whatsappNumber}
+                    onChange={(e) => setProfileForm({ ...profileForm, whatsappNumber: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="+91XXXXXXXXXX"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSaveProfile}
+                    disabled={profileSaving}
+                    className="flex items-center gap-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-slate-300"
+                  >
+                    <Save size={14} /> {profileSaving ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    onClick={() => setEditingProfile(false)}
+                    className="px-4 py-2 border rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-500">Name</label>
+                  <p className="font-medium">{user?.name || '—'}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-500">Email</label>
+                  <p className="font-medium">{user?.email}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-500">WhatsApp Number</label>
+                  <p className="font-medium">{user?.whatsappNumber || <span className="text-slate-400 italic">Not set</span>}</p>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="bg-white p-6 rounded-xl shadow">

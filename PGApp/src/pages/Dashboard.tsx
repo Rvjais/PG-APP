@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useBuildingStore, useTenantStore, useTemplateStore } from '../store';
 import { Building2, Users, MessageSquare, TrendingUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -7,6 +8,7 @@ export default function Dashboard() {
   const { buildings, fetchBuildings } = useBuildingStore();
   const { tenants, fetchTenants } = useTenantStore();
   const { templates, fetchTemplates } = useTemplateStore();
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchBuildings();
@@ -25,24 +27,28 @@ export default function Dashboard() {
           value={buildings.length}
           icon={Building2}
           color="bg-blue-500"
+          onClick={() => navigate('/buildings')}
         />
         <StatCard
           title="Active Tenants"
           value={activeTenants.length}
           icon={Users}
           color="bg-green-500"
+          onClick={() => navigate('/tenants')}
         />
         <StatCard
           title="Templates"
           value={templates.length}
           icon={MessageSquare}
           color="bg-purple-500"
+          onClick={() => navigate('/templates')}
         />
         <StatCard
-          title="Total Rooms"
+          title="Total Tenants"
           value={tenants.length}
           icon={TrendingUp}
           color="bg-orange-500"
+          onClick={() => navigate('/tenants')}
         />
       </div>
 
@@ -91,9 +97,12 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ title, value, icon: Icon, color }: { title: string; value: number; icon: LucideIcon; color: string }) {
+function StatCard({ title, value, icon: Icon, color, onClick }: { title: string; value: number; icon: LucideIcon; color: string; onClick?: () => void }) {
   return (
-    <div className="bg-white p-6 rounded-xl shadow">
+    <div 
+      onClick={onClick}
+      className={`bg-white p-6 rounded-xl shadow ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
+    >
       <div className="flex items-center gap-4">
         <div className={`${color} p-3 rounded-lg`}>
           <Icon className="text-white" size={24} />

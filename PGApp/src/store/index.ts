@@ -7,24 +7,27 @@ interface AuthState {
   user: User | null;
   token: string | null;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string) => Promise<void>;
   logout: () => void;
+  updateProfile: (name: string, whatsappNumber?: string) => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
       token: null,
       login: async (email, password) => {
         const { data } = await api.post('/auth/login', { email, password });
         set({ user: data.user, token: data.token });
       },
-      register: async (email, password, name) => {
-        const { data } = await api.post('/auth/register', { email, password, name });
-        set({ user: data.user, token: data.token });
-      },
       logout: () => set({ user: null, token: null }),
+      updateProfile: async (name, whatsappNumber) => {
+        const { data } = await api.put('/settings/profile', { name, whatsappNumber });
+        const currentUser = get().user;
+        if (currentUser) {
+          set({ user: { ...currentUser, name: data.name, whatsappNumber: data.whatsappNumber } });
+        }
+      },
     }),
     { name: 'auth-storage' }
   )
@@ -83,6 +86,7 @@ export const useBuildingStore = create<BuildingState>((set, get) => ({
 interface TenantState {
   tenants: Tenant[];
   loading: boolean;
+  activeBuildingId: string | undefined;
   fetchTenants: (buildingId?: string) => Promise<void>;
   createTenant: (data: Partial<Tenant>) => Promise<void>;
   updateTenant: (id: string, data: Partial<Tenant>) => Promise<void>;
@@ -92,8 +96,9 @@ interface TenantState {
 export const useTenantStore = create<TenantState>((set, get) => ({
   tenants: [],
   loading: false,
+  activeBuildingId: undefined,
   fetchTenants: async (buildingId) => {
-    set({ loading: true });
+    set({ loading: true, activeBuildingId: buildingId });
     try {
       const params = buildingId ? { buildingId } : {};
       const { data } = await api.get('/tenants', { params });
@@ -105,7 +110,7 @@ export const useTenantStore = create<TenantState>((set, get) => ({
   createTenant: async (tenantData) => {
     try {
       await api.post('/tenants', tenantData);
-      await get().fetchTenants();
+      await get().fetchTenants(get().activeBuildingId);
     } catch (error) {
       console.error('Failed to create tenant:', error);
       throw error;
@@ -114,7 +119,7 @@ export const useTenantStore = create<TenantState>((set, get) => ({
   updateTenant: async (id, tenantData) => {
     try {
       await api.put(`/tenants/${id}`, tenantData);
-      await get().fetchTenants();
+      await get().fetchTenants(get().activeBuildingId);
     } catch (error) {
       console.error('Failed to update tenant:', error);
       throw error;
@@ -123,7 +128,7 @@ export const useTenantStore = create<TenantState>((set, get) => ({
   deleteTenant: async (id) => {
     try {
       await api.delete(`/tenants/${id}`);
-      await get().fetchTenants();
+      await get().fetchTenants(get().activeBuildingId);
     } catch (error) {
       console.error('Failed to delete tenant:', error);
       throw error;

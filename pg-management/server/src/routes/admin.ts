@@ -68,6 +68,11 @@ router.put('/users/:id', async (req: AuthRequest, res) => {
     const { id } = req.params;
     const { email, name, isAdmin } = req.body;
 
+    // BUG #14 FIX: prevent admin from removing their own admin privilege
+    if (id === req.userId && isAdmin === false) {
+      return res.status(400).json({ error: 'Cannot remove your own admin access' });
+    }
+
     const existing = await prisma.user.findUnique({ where: { id } });
     if (!existing) {
       return res.status(404).json({ error: 'User not found' });
@@ -109,6 +114,18 @@ router.delete('/users/:id', async (req: AuthRequest, res) => {
 
     if (id === req.userId) {
       return res.status(400).json({ error: 'Cannot delete yourself' });
+    }
+
+    // BUG #10 FIX: prevent deletion of the last admin account
+    const userToDelete = await prisma.user.findUnique({ where: { id } });
+    if (!userToDelete) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    if (userToDelete.isAdmin) {
+      const adminCount = await prisma.user.count({ where: { isAdmin: true } });
+      if (adminCount <= 1) {
+        return res.status(400).json({ error: 'Cannot delete the last admin account. Promote another user first.' });
+      }
     }
 
     await prisma.user.delete({ where: { id } });

@@ -23,7 +23,7 @@ router.post('/set-password', async (req, res) => {
       return res.status(404).json({ error: 'No account found with this email. Contact your admin.' });
     }
 
-    if (user.password) {
+    if (user.password !== '') {
       return res.status(400).json({ error: 'Password already set. Use login or contact admin.' });
     }
 
@@ -72,7 +72,7 @@ router.post('/seed-admin', async (req, res) => {
       },
     });
 
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET!, {
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET || 'fallback-secret-change-in-production', {
       expiresIn: '7d',
     });
 
@@ -101,7 +101,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET!, {
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET || 'fallback-secret-change-in-production', {
       expiresIn: '7d',
     });
 
@@ -135,6 +135,9 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
         createdAt: true,
       },
     });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
     res.json(user);
   } catch (error) {
     res.status(500).json({ error: 'Failed to get user' });

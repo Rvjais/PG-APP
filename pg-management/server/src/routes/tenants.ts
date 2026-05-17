@@ -106,7 +106,9 @@ router.put('/:id', async (req: AuthRequest, res) => {
         phone,
         roomNumber,
         floor: floor !== undefined ? floor : tenant.floor,
-        rentAmount: rentAmount !== undefined ? parseFloat(rentAmount) : tenant.rentAmount,
+        rentAmount: rentAmount !== undefined
+          ? (() => { const v = parseFloat(rentAmount); return isNaN(v) ? null : v; })()
+          : tenant.rentAmount,
         joinDate: joinDate !== undefined ? new Date(joinDate) : tenant.joinDate,
         isActive: isActive !== undefined ? isActive : tenant.isActive,
         customFieldValues: customFieldValues !== undefined ? customFieldValues : tenant.customFieldValues,

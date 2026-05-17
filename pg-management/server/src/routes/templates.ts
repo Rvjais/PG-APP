@@ -101,7 +101,7 @@ router.post('/:id/preview', async (req: AuthRequest, res) => {
       select: { name: true },
     });
 
-    const preview = parseTemplate(template.templateText, tenant, user?.name || 'Owner', tenant.building.name);
+    const preview = parseTemplate(template.templateText, tenant, user?.name || 'Owner', tenant.building?.name || 'Your PG');
     res.json({ preview, template: template.templateText });
   } catch (error) {
     res.status(500).json({ error: 'Failed to preview template' });
