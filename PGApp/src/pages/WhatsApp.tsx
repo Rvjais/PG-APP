@@ -15,7 +15,10 @@ export default function WhatsApp() {
     const interval = setInterval(() => {
       if (!isPolling.current) checkStatus();
     }, 3000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      isPolling.current = false;
+    };
   }, []);
 
   useEffect(() => {

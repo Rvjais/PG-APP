@@ -17,8 +17,8 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       login: async (email, password) => {
         const { data } = await api.post('/auth/login', { email, password });
-        if (!data.user.isAdmin) {
-          throw new Error('Admin access required');
+        if (data.user.isAdmin !== true) {
+          throw new Error('Admin access required. This account is not an admin.');
         }
         set({ user: data.user, token: data.token });
       },

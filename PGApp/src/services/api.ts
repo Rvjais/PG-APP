@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const BASE_URL = import.meta.env.PROD
-  ? (import.meta.env.VITE_API_URL || 'http://192.168.0.114:3001') + '/api'
+  ? (import.meta.env.VITE_API_URL || '') + '/api'
   : '/api';
 
 const api = axios.create({

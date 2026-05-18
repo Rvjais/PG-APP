@@ -13,7 +13,7 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       user: null,
       token: null,
       login: async (email, password) => {
@@ -23,10 +23,7 @@ export const useAuthStore = create<AuthState>()(
       logout: () => set({ user: null, token: null }),
       updateProfile: async (name, whatsappNumber) => {
         const { data } = await api.put('/settings/profile', { name, whatsappNumber });
-        const currentUser = get().user;
-        if (currentUser) {
-          set({ user: { ...currentUser, name: data.name, whatsappNumber: data.whatsappNumber } });
-        }
+        set({ user: data });
       },
     }),
     { name: 'auth-storage' }

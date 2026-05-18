@@ -49,7 +49,9 @@ export default function Tenants() {
       roomNumber: tenant.roomNumber,
       floor: tenant.floor,
       rentAmount: tenant.rentAmount?.toString() || '',
-      joinDate: tenant.joinDate?.split('T')[0] || '',
+      joinDate: tenant.joinDate
+        ? new Date(tenant.joinDate).toISOString().split('T')[0]
+        : '',
       customFieldValues: tenant.customFieldValues || {},
     });
     setEditingId(tenant.id);
