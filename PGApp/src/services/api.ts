@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const BASE_URL = import.meta.env.PROD
-  ? (import.meta.env.VITE_API_URL || '') + '/api'
+  ? (import.meta.env.VITE_API_URL || 'https://pg-app-server-mo42.onrender.com') + '/api'
   : '/api';
 
 const api = axios.create({
