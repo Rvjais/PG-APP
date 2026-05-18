@@ -26,16 +26,17 @@ export async function checkRateLimit(userId: string): Promise<{ allowed: boolean
   const oneHourAgo = new Date(now.getTime() - 3_600_000);
   const oneDayAgo = new Date(now.getTime() - 86_400_000);
 
-  // Count only SENT + PENDING messages (not FAILEDs caused by rate limiting itself)
+  // FIX: Count only SENT messages (PENDING messages don't count as they were either
+  // retried and succeeded, or failed - they shouldn't consume rate limit quota)
   const [minuteCount, hourCount, dayCount] = await Promise.all([
     prisma.messageLog.count({
-      where: { ownerId: userId, sentAt: { gte: oneMinuteAgo }, status: { in: ['SENT', 'PENDING'] } },
+      where: { ownerId: userId, sentAt: { gte: oneMinuteAgo }, status: 'SENT' },
     }),
     prisma.messageLog.count({
-      where: { ownerId: userId, sentAt: { gte: oneHourAgo }, status: { in: ['SENT', 'PENDING'] } },
+      where: { ownerId: userId, sentAt: { gte: oneHourAgo }, status: 'SENT' },
     }),
     prisma.messageLog.count({
-      where: { ownerId: userId, sentAt: { gte: oneDayAgo }, status: { in: ['SENT', 'PENDING'] } },
+      where: { ownerId: userId, sentAt: { gte: oneDayAgo }, status: 'SENT' },
     }),
   ]);
 

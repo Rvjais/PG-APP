@@ -81,12 +81,10 @@ export async function connectWhatsApp(userId: string, forceFresh?: boolean): Pro
 
       if (connection === 'open') {
         sockets.set(userId, { sock, qrData: null, connectionStatus: 'connected' });
-        // BUG #8 FIX: session data is saved via creds.update event (saveCreds),
-        // here we only update the DB connected flag — not serialize stale state.
         await prisma.whatsAppSession.upsert({
           where: { userId },
           update: { connected: true },
-          create: { userId, connected: true, sessionData: '' },
+          create: { userId, connected: true },
         });
       }
 
@@ -161,14 +159,26 @@ export async function sendWhatsAppMessage(
 
   const data = sockets.get(userId);
 
+  // FIX: If socket is disconnected but DB says connected, try to reconnect and wait
   if (!data?.sock || data.connectionStatus !== 'connected') {
     const session = await prisma.whatsAppSession.findUnique({ where: { userId } });
     if (!session?.connected) {
       return 'FAILED';
     }
 
-    await connectWhatsApp(userId);
-    return 'PENDING';
+    // Await reconnection before attempting to send
+    try {
+      await connectWhatsApp(userId);
+      // Wait briefly for connection to establish
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      const dataAfterReconnect = sockets.get(userId);
+      if (!dataAfterReconnect?.sock || dataAfterReconnect.connectionStatus !== 'connected') {
+        return 'FAILED'; // Reconnection failed
+      }
+    } catch {
+      return 'FAILED'; // Reconnection threw
+    }
   }
 
   try {

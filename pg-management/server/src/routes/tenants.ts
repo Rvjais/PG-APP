@@ -57,6 +57,13 @@ router.post('/', async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'Building, name, phone, and room number are required' });
     }
 
+    // Validate phone number format
+    const phoneRegex = /^\+?[1-9]\d{6,14}$/;
+    const cleanedPhone = phone.replace(/[^\d]/g, '');
+    if (!phoneRegex.test(cleanedPhone)) {
+      return res.status(400).json({ error: 'Invalid phone number format. Use 10+ digits with optional + prefix.' });
+    }
+
     const building = await prisma.building.findFirst({
       where: { id: buildingId, ownerId: req.userId },
     });
@@ -96,6 +103,16 @@ router.put('/:id', async (req: AuthRequest, res) => {
     });
     if (!tenant) {
       return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    // Validate building ownership if buildingId is being changed
+    if (buildingId && buildingId !== tenant.buildingId) {
+      const building = await prisma.building.findFirst({
+        where: { id: buildingId, ownerId: req.userId },
+      });
+      if (!building) {
+        return res.status(404).json({ error: 'Building not found or access denied' });
+      }
     }
 
     const updated = await prisma.tenant.update({

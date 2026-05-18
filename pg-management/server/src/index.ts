@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import authRoutes from './routes/auth.js';
@@ -27,7 +28,36 @@ export const prisma = new PrismaClient();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+// Security headers
+app.use(helmet());
+
+// CORS - allow mobile apps (Capacitor) and web origins
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim())
+  : ['http://localhost:5173', 'http://localhost:3000'];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps like Capacitor)
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    // Allow if origin is in allowed list
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+    // In production, block unknown origins
+    if (process.env.NODE_ENV === 'production') {
+      callback(new Error(`CORS: Origin ${origin} not allowed`));
+    } else {
+      // In dev, allow everything for easier testing
+      callback(null, true);
+    }
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: '10mb' }));
 
 app.use('/api/auth', authRoutes);
