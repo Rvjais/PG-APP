@@ -172,24 +172,37 @@ export async function sendWhatsAppMessage(
       // Wait briefly for connection to establish
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      const dataAfterReconnect = sockets.get(userId);
-      if (!dataAfterReconnect?.sock || dataAfterReconnect.connectionStatus !== 'connected') {
+      const reconnectedData = sockets.get(userId);
+      if (!reconnectedData?.sock || reconnectedData.connectionStatus !== 'connected') {
         return 'FAILED'; // Reconnection failed
       }
+
+      // Use the reconnected socket
+      const jid = formatPhoneNumber(phoneNumber);
+      if (imageBase64) {
+        await reconnectedData.sock.sendMessage(jid, {
+          image: Buffer.from(imageBase64, 'base64'),
+          caption: message,
+        });
+      } else {
+        await reconnectedData.sock.sendMessage(jid, { text: message });
+      }
+      return 'SENT';
     } catch {
       return 'FAILED'; // Reconnection threw
     }
   }
 
+  // Socket was already connected
   try {
     const jid = formatPhoneNumber(phoneNumber);
     if (imageBase64) {
-      await data.sock.sendMessage(jid, {
+      await data.sock!.sendMessage(jid, {
         image: Buffer.from(imageBase64, 'base64'),
         caption: message,
       });
     } else {
-      await data.sock.sendMessage(jid, { text: message });
+      await data.sock!.sendMessage(jid, { text: message });
     }
     return 'SENT';
   } catch (error) {
