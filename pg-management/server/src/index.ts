@@ -28,13 +28,16 @@ export const prisma = new PrismaClient();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Trust proxy for rate limiter behind load balancers
+app.set('trust proxy', 1);
+
 // Security headers
 app.use(helmet());
 
-// CORS - allow mobile apps (Capacitor) and web origins
+// CORS - allow all for mobile apps and web origins
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim())
-  : ['http://localhost:5173', 'http://localhost:3000'];
+  : ['http://localhost:5173', 'http://localhost:3000', 'http://localhost'];
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -48,11 +51,16 @@ app.use(cors({
       callback(null, true);
       return;
     }
-    // In production, block unknown origins
+    // Allow development origins
+    if (origin.includes('localhost')) {
+      callback(null, true);
+      return;
+    }
+    // Block unknown origins in production
     if (process.env.NODE_ENV === 'production') {
+      console.log(`CORS blocked: ${origin}`);
       callback(new Error(`CORS: Origin ${origin} not allowed`));
     } else {
-      // In dev, allow everything for easier testing
       callback(null, true);
     }
   },

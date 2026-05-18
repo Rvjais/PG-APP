@@ -14,6 +14,7 @@ const loginLimiter = rateLimit({
   message: { error: 'Too many login attempts. Please try again after 15 minutes.' },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
 });
 
 const setPasswordLimiter = rateLimit({
@@ -22,6 +23,7 @@ const setPasswordLimiter = rateLimit({
   message: { error: 'Too many password reset attempts. Please try again after 15 minutes.' },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
 });
 
 router.post('/set-password', setPasswordLimiter, async (req, res) => {

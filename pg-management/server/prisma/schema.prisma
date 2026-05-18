@@ -78,7 +78,7 @@ model Tenant {
   phone             String
   roomNumber        String
   floor             Int      @default(1)
-  rentAmount        Float?
+  rentAmount        Float?Now let me fix the helmet import issue. It might be that helmet isn't installed. Let me check and install it.
   joinDate          DateTime?
   isActive          Boolean  @default(true)
   customFieldValues Json     @default("{}")
