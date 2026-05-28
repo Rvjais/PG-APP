@@ -92,7 +92,8 @@ interface TenantState {
   loading: boolean;
   // BUG #12 FIX: track the active filter so mutations refresh with the same filter
   activeBuildingId: string | undefined;
-  fetchTenants: (buildingId?: string) => Promise<void>;
+  activeIsActive: boolean | undefined;
+  fetchTenants: (buildingId?: string, isActive?: boolean) => Promise<void>;
   createTenant: (data: Partial<Tenant>) => Promise<void>;
   updateTenant: (id: string, data: Partial<Tenant>) => Promise<void>;
   deleteTenant: (id: string) => Promise<void>;
@@ -102,10 +103,13 @@ export const useTenantStore = create<TenantState>((set, get) => ({
   tenants: [],
   loading: false,
   activeBuildingId: undefined,
-  fetchTenants: async (buildingId) => {
-    set({ loading: true, activeBuildingId: buildingId });
+  activeIsActive: true,
+  fetchTenants: async (buildingId, isActive) => {
+    set({ loading: true, activeBuildingId: buildingId, activeIsActive: isActive });
     try {
-      const params = buildingId ? { buildingId } : {};
+      const params: Record<string, string> = {};
+      if (buildingId) params.buildingId = buildingId;
+      if (isActive !== undefined) params.isActive = String(isActive);
       const { data } = await api.get('/tenants', { params });
       set({ tenants: data, loading: false });
     } catch {
@@ -116,7 +120,7 @@ export const useTenantStore = create<TenantState>((set, get) => ({
     try {
       await api.post('/tenants', tenantData);
       // BUG #12 FIX: refresh with the same buildingId filter that was active
-      await get().fetchTenants(get().activeBuildingId);
+      await get().fetchTenants(get().activeBuildingId, get().activeIsActive);
     } catch (error) {
       console.error('Failed to create tenant:', error);
       throw error;
@@ -126,7 +130,7 @@ export const useTenantStore = create<TenantState>((set, get) => ({
     try {
       await api.put(`/tenants/${id}`, tenantData);
       // BUG #12 FIX: refresh with the same buildingId filter that was active
-      await get().fetchTenants(get().activeBuildingId);
+      await get().fetchTenants(get().activeBuildingId, get().activeIsActive);
     } catch (error) {
       console.error('Failed to update tenant:', error);
       throw error;
@@ -136,7 +140,7 @@ export const useTenantStore = create<TenantState>((set, get) => ({
     try {
       await api.delete(`/tenants/${id}`);
       // BUG #12 FIX: refresh with the same buildingId filter that was active
-      await get().fetchTenants(get().activeBuildingId);
+      await get().fetchTenants(get().activeBuildingId, get().activeIsActive);
     } catch (error) {
       console.error('Failed to delete tenant:', error);
       throw error;

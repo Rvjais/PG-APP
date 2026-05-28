@@ -1,9 +1,24 @@
 import { Router } from 'express';
 import { prisma } from '../index.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
-import { triggerReminderNow } from '../services/scheduler.js';
+import { triggerReminderNow, triggerAllReminders } from '../services/scheduler.js';
 
 const router = Router();
+
+// POST /api/scheduler/trigger-all — called by external pinger (no auth)
+router.post('/trigger-all', async (req, res) => {
+  try {
+    const result = await triggerAllReminders();
+    res.json({
+      message: `Processed: ${result.processed}, Skipped: ${result.skipped}`,
+      processed: result.processed,
+      skipped: result.skipped,
+    });
+  } catch (error) {
+    console.error('Trigger all error:', error);
+    res.status(500).json({ error: 'Failed to trigger reminders' });
+  }
+});
 
 router.use(authMiddleware);
 

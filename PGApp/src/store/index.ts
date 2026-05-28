@@ -13,7 +13,7 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
       token: null,
       login: async (email, password) => {
@@ -23,7 +23,11 @@ export const useAuthStore = create<AuthState>()(
       logout: () => set({ user: null, token: null }),
       updateProfile: async (name, whatsappNumber) => {
         const { data } = await api.put('/settings/profile', { name, whatsappNumber });
-        set({ user: data });
+        // BUG #3 FIX: merge updated fields into stored user so the UI reflects changes immediately
+        const currentUser = get().user;
+        if (currentUser) {
+          set({ user: { ...currentUser, name: data.name, whatsappNumber: data.whatsappNumber } });
+        }
       },
     }),
     { name: 'auth-storage' }
@@ -84,7 +88,8 @@ interface TenantState {
   tenants: Tenant[];
   loading: boolean;
   activeBuildingId: string | undefined;
-  fetchTenants: (buildingId?: string) => Promise<void>;
+  activeIsActive: boolean | undefined;
+  fetchTenants: (buildingId?: string, isActive?: boolean) => Promise<void>;
   createTenant: (data: Partial<Tenant>) => Promise<void>;
   updateTenant: (id: string, data: Partial<Tenant>) => Promise<void>;
   deleteTenant: (id: string) => Promise<void>;
@@ -94,10 +99,13 @@ export const useTenantStore = create<TenantState>((set, get) => ({
   tenants: [],
   loading: false,
   activeBuildingId: undefined,
-  fetchTenants: async (buildingId) => {
-    set({ loading: true, activeBuildingId: buildingId });
+  activeIsActive: true,
+  fetchTenants: async (buildingId, isActive) => {
+    set({ loading: true, activeBuildingId: buildingId, activeIsActive: isActive });
     try {
-      const params = buildingId ? { buildingId } : {};
+      const params: Record<string, string> = {};
+      if (buildingId) params.buildingId = buildingId;
+      if (isActive !== undefined) params.isActive = String(isActive);
       const { data } = await api.get('/tenants', { params });
       set({ tenants: data, loading: false });
     } catch {
@@ -107,7 +115,7 @@ export const useTenantStore = create<TenantState>((set, get) => ({
   createTenant: async (tenantData) => {
     try {
       await api.post('/tenants', tenantData);
-      await get().fetchTenants(get().activeBuildingId);
+      await get().fetchTenants(get().activeBuildingId, get().activeIsActive);
     } catch (error) {
       console.error('Failed to create tenant:', error);
       throw error;
@@ -116,7 +124,7 @@ export const useTenantStore = create<TenantState>((set, get) => ({
   updateTenant: async (id, tenantData) => {
     try {
       await api.put(`/tenants/${id}`, tenantData);
-      await get().fetchTenants(get().activeBuildingId);
+      await get().fetchTenants(get().activeBuildingId, get().activeIsActive);
     } catch (error) {
       console.error('Failed to update tenant:', error);
       throw error;
@@ -125,7 +133,7 @@ export const useTenantStore = create<TenantState>((set, get) => ({
   deleteTenant: async (id) => {
     try {
       await api.delete(`/tenants/${id}`);
-      await get().fetchTenants(get().activeBuildingId);
+      await get().fetchTenants(get().activeBuildingId, get().activeIsActive);
     } catch (error) {
       console.error('Failed to delete tenant:', error);
       throw error;

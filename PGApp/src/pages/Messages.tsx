@@ -24,6 +24,7 @@ export default function Messages() {
   const [result, setResult] = useState<{ successful: number; failed: number } | null>(null);
   const [logs, setLogs] = useState<MessageLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [logsPagination, setLogsPagination] = useState<{ hasMore: boolean; nextCursor: string | null }>({ hasMore: false, nextCursor: null });
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [imageName, setImageName] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -38,19 +39,34 @@ export default function Messages() {
 
   useEffect(() => {
     if (tab === 'history') {
-      fetchLogs();
+      refreshLogs();
     }
   }, [tab]);
 
-  const fetchLogs = async () => {
+  const fetchLogs = async (cursor?: string, append = false) => {
     setLogsLoading(true);
     try {
-      const { data } = await api.get('/messages/logs', { params: { limit: 200 } });
-      setLogs(data);
+      const params: Record<string, string | number> = { limit: 50 };
+      if (cursor) params.cursor = cursor;
+      const { data } = await api.get('/messages/logs', { params });
+      setLogs((prev) => append ? [...prev, ...data.logs] : data.logs);
+      setLogsPagination({ hasMore: data.pagination.hasMore, nextCursor: data.pagination.nextCursor });
     } catch {
       console.error('Failed to fetch logs');
     }
     setLogsLoading(false);
+  };
+
+  const loadMoreLogs = () => {
+    if (logsPagination.nextCursor) {
+      fetchLogs(logsPagination.nextCursor, true);
+    }
+  };
+
+  const refreshLogs = () => {
+    setLogs([]);
+    setLogsPagination({ hasMore: false, nextCursor: null });
+    fetchLogs();
   };
 
   const filteredTenants = tenants.filter((t) => {
@@ -334,7 +350,7 @@ export default function Messages() {
         <div className="bg-white rounded-xl shadow overflow-hidden">
           <div className="p-4 border-b flex justify-between items-center">
             <h2 className="text-lg font-semibold">Message History</h2>
-            <button onClick={fetchLogs} className="text-sm text-blue-600 hover:underline">Refresh</button>
+            <button onClick={refreshLogs} className="text-sm text-blue-600 hover:underline">Refresh</button>
           </div>
           {logsLoading ? (
             <p className="p-6 text-slate-500 text-center">Loading...</p>
@@ -377,6 +393,17 @@ export default function Messages() {
                   ))}
                 </tbody>
               </table>
+              {logsPagination.hasMore && (
+                <div className="p-4 border-t text-center">
+                  <button
+                    onClick={loadMoreLogs}
+                    disabled={logsLoading}
+                    className="px-4 py-2 text-sm text-blue-600 hover:underline disabled:text-slate-400"
+                  >
+                    {logsLoading ? 'Loading...' : 'Load More'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

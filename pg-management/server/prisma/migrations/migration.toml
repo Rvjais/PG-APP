@@ -1,0 +1,5 @@
+# Migration for adding sendFrom/sendUntil to ScheduledReminder
+
+[[migration]]
+version = 1
+name = "20260519_add_send_time_window"

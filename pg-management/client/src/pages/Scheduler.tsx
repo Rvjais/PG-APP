@@ -14,6 +14,8 @@ export default function Scheduler() {
     buildingId: '',
     triggerType: 'FIXED_DATE' as 'FIXED_DATE' | 'RELATIVE_TO_JOIN',
     triggerValue: '',
+    sendFrom: '',
+    sendUntil: '',
   });
 
   useEffect(() => {
@@ -28,6 +30,8 @@ export default function Scheduler() {
       buildingId: '',
       triggerType: 'FIXED_DATE',
       triggerValue: '5',
+      sendFrom: '',
+      sendUntil: '',
     });
     setEditingId(null);
     setShowModal(true);
@@ -39,6 +43,8 @@ export default function Scheduler() {
       buildingId: reminder.buildingId || '',
       triggerType: reminder.triggerType,
       triggerValue: reminder.triggerValue,
+      sendFrom: reminder.sendFrom || '',
+      sendUntil: reminder.sendUntil || '',
     });
     setEditingId(reminder.id);
     setShowModal(true);
@@ -124,6 +130,13 @@ export default function Scheduler() {
                   <p className="text-sm text-slate-400">
                     Building: {reminder.building?.name || 'All Buildings'}
                   </p>
+                  {reminder.sendFrom || reminder.sendUntil ? (
+                    <p className="text-sm text-blue-500 mt-1">
+                      Send window: {reminder.sendFrom || '00:00'} - {reminder.sendUntil || '23:59'}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-slate-400 mt-1">Send window: Anytime</p>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <button onClick={() => triggerNow(reminder.id)} className="p-2 text-green-600 hover:bg-green-50 rounded" title="Send now">
@@ -190,6 +203,24 @@ export default function Scheduler() {
                   onChange={(e) => setFormData({ ...formData, triggerValue: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg"
                   required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Send From (optional)</label>
+                <input
+                  type="time"
+                  value={formData.sendFrom}
+                  onChange={(e) => setFormData({ ...formData, sendFrom: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Send Until (optional)</label>
+                <input
+                  type="time"
+                  value={formData.sendUntil}
+                  onChange={(e) => setFormData({ ...formData, sendUntil: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg"
                 />
               </div>
               <div className="flex gap-2 justify-end">

@@ -9,15 +9,29 @@ export default function WhatsApp() {
   const [qrImage, setQrImage] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const isPolling = useRef(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const checkStatus = async () => {
+    try {
+      const { data } = await api.get('/whatsapp/status');
+      setStatus(data.status);
+      setQrCode(data.qrCode ?? null);
+
+      // BUG #10 FIX: stop polling when connected
+      if (data.status === 'connected' && intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     checkStatus();
-    const interval = setInterval(() => {
+    intervalRef.current = setInterval(() => {
       if (!isPolling.current) checkStatus();
     }, 3000);
     return () => {
-      clearInterval(interval);
-      isPolling.current = false;
+      if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, []);
 
@@ -31,14 +45,6 @@ export default function WhatsApp() {
       setQrImage('');
     }
   }, [qrCode]);
-
-  const checkStatus = async () => {
-    try {
-      const { data } = await api.get('/whatsapp/status');
-      setStatus(data.status);
-      setQrCode(data.qrCode ?? null);
-    } catch {}
-  };
 
   const connect = async () => {
     setLoading(true);

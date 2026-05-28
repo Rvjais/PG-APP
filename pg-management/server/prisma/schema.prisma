@@ -109,6 +109,8 @@ model ScheduledReminder {
   templateId   String
   triggerType  TriggerType
   triggerValue String
+  sendFrom     String?
+  sendUntil    String?
   isActive     Boolean      @default(true)
   lastSentAt   DateTime?
   createdAt    DateTime     @default(now())

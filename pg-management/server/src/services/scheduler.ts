@@ -18,9 +18,35 @@ export function startScheduler(): void {
   console.log('Scheduler started');
 }
 
-async function processScheduledReminders(): Promise<void> {
+export async function triggerAllReminders(): Promise<{ processed: number; skipped: number }> {
+  const fixedResult = await processScheduledReminders();
+  const relativeResult = await checkRelativeReminders();
+  return {
+    processed: fixedResult.processed + relativeResult.processed,
+    skipped: fixedResult.skipped + relativeResult.skipped,
+  };
+}
+
+function isWithinTimeWindow(sendFrom?: string | null, sendUntil?: string | null): boolean {
+  if (!sendFrom && !sendUntil) return true;
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const from = sendFrom ? toMinutes(sendFrom) : 0;
+  const until = sendUntil ? toMinutes(sendUntil) : 24 * 60 - 1;
+  return currentMinutes >= from && currentMinutes <= until;
+}
+
+function toMinutes(time: string): number {
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + m;
+}
+
+async function processScheduledReminders(): Promise<{ processed: number; skipped: number }> {
   const today = new Date();
   const dayOfMonth = today.getDate();
+
+  let processed = 0;
+  let skipped = 0;
 
   try {
     const reminders = await prisma.scheduledReminder.findMany({
@@ -35,8 +61,17 @@ async function processScheduledReminders(): Promise<void> {
     });
 
     for (const reminder of reminders) {
+      if (!isWithinTimeWindow(reminder.sendFrom, reminder.sendUntil)) {
+        console.log(`Reminder ${reminder.id} outside time window, skipping.`);
+        skipped++;
+        continue;
+      }
+
       const tv = parseInt(reminder.triggerValue);
-      if (isNaN(tv) || tv !== dayOfMonth) continue;
+      if (isNaN(tv) || tv !== dayOfMonth) {
+        skipped++;
+        continue;
+      }
 
       // BUG #9 FIX: check if this reminder already fired today
       if (reminder.lastSentAt) {
@@ -46,18 +81,25 @@ async function processScheduledReminders(): Promise<void> {
         todayStart.setHours(0, 0, 0, 0);
         if (lastSentDay.getTime() === todayStart.getTime()) {
           console.log(`Reminder ${reminder.id} already sent today, skipping.`);
+          skipped++;
           continue;
         }
       }
 
       await sendReminderToTenants(reminder);
+      processed++;
     }
   } catch (error) {
     console.error('Error processing fixed date reminders:', error);
   }
+
+  return { processed, skipped };
 }
 
-async function checkRelativeReminders(): Promise<void> {
+async function checkRelativeReminders(): Promise<{ processed: number; skipped: number }> {
+  let processed = 0;
+  let skipped = 0;
+
   try {
     const reminders = await prisma.scheduledReminder.findMany({
       where: {
@@ -74,14 +116,23 @@ async function checkRelativeReminders(): Promise<void> {
     today.setHours(0, 0, 0, 0);
 
     for (const reminder of reminders) {
+      if (!isWithinTimeWindow(reminder.sendFrom, reminder.sendUntil)) {
+        skipped++;
+        continue;
+      }
+
       const daysOffset = parseInt(reminder.triggerValue);
-      if (isNaN(daysOffset)) continue;
+      if (isNaN(daysOffset)) {
+        skipped++;
+        continue;
+      }
 
       // BUG #9 FIX: skip if this reminder already fired today
       if (reminder.lastSentAt) {
         const lastSentDay = new Date(reminder.lastSentAt);
         lastSentDay.setHours(0, 0, 0, 0);
         if (lastSentDay.getTime() === today.getTime()) {
+          skipped++;
           continue; // Already processed today — skip all 5-min ticks
         }
       }
@@ -110,6 +161,11 @@ async function checkRelativeReminders(): Promise<void> {
 
         await sendSingleReminder(reminder, tenant);
         didSendToAnyone = true;
+        processed++;
+      }
+
+      if (!didSendToAnyone) {
+        skipped++;
       }
 
       // FIX: Always update lastSentAt when a reminder is processed (not just when
@@ -122,6 +178,8 @@ async function checkRelativeReminders(): Promise<void> {
   } catch (error) {
     console.error('Error checking relative reminders:', error);
   }
+
+  return { processed, skipped };
 }
 
 async function sendReminderToTenants(reminder: any): Promise<void> {

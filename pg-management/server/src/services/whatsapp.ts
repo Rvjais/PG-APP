@@ -169,15 +169,31 @@ export async function sendWhatsAppMessage(
     // Await reconnection before attempting to send
     try {
       await connectWhatsApp(userId);
-      // Wait briefly for connection to establish
-      await new Promise(resolve => setTimeout(resolve, 2000));
 
-      const reconnectedData = sockets.get(userId);
-      if (!reconnectedData?.sock || reconnectedData.connectionStatus !== 'connected') {
-        return 'FAILED'; // Reconnection failed
+      // Poll for connection status instead of fixed timeout
+      const maxWaitMs = 10000;
+      const pollIntervalMs = 500;
+      const startTime = Date.now();
+      let connected = false;
+
+      while (Date.now() - startTime < maxWaitMs) {
+        const currentData = sockets.get(userId);
+        if (currentData?.connectionStatus === 'connected' && currentData?.sock) {
+          connected = true;
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+      }
+
+      if (!connected) {
+        return 'FAILED'; // Reconnection timed out
       }
 
       // Use the reconnected socket
+      const reconnectedData = sockets.get(userId)!;
+      if (!reconnectedData?.sock) {
+        return 'FAILED'; // Socket not available
+      }
       const jid = formatPhoneNumber(phoneNumber);
       if (imageBase64) {
         await reconnectedData.sock.sendMessage(jid, {

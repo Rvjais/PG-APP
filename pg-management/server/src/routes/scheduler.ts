@@ -24,7 +24,7 @@ router.get('/reminders', async (req: AuthRequest, res) => {
 
 router.post('/reminders', async (req: AuthRequest, res) => {
   try {
-    const { templateId, buildingId, triggerType, triggerValue, isActive = true } = req.body;
+    const { templateId, buildingId, triggerType, triggerValue, isActive = true, sendFrom, sendUntil } = req.body;
 
     if (!templateId || !triggerType || !triggerValue) {
       return res.status(400).json({ error: 'Template, trigger type, and trigger value are required' });
@@ -33,6 +33,21 @@ router.post('/reminders', async (req: AuthRequest, res) => {
     const VALID_TRIGGER_TYPES = ['FIXED_DATE', 'RELATIVE_TO_JOIN'] as const;
     if (!VALID_TRIGGER_TYPES.includes(triggerType as typeof VALID_TRIGGER_TYPES[number])) {
       return res.status(400).json({ error: 'Invalid trigger type' });
+    }
+
+    // BUG FIX: Validate FIXED_DATE triggerValue is in valid range (1-31)
+    if (triggerType === 'FIXED_DATE') {
+      const day = parseInt(triggerValue, 10);
+      if (isNaN(day) || day < 1 || day > 31) {
+        return res.status(400).json({ error: 'Day of month must be between 1 and 31' });
+      }
+    }
+
+    if (sendFrom && !/^\d{2}:\d{2}$/.test(sendFrom)) {
+      return res.status(400).json({ error: 'sendFrom must be in HH:MM format' });
+    }
+    if (sendUntil && !/^\d{2}:\d{2}$/.test(sendUntil)) {
+      return res.status(400).json({ error: 'sendUntil must be in HH:MM format' });
     }
 
     const template = await prisma.messageTemplate.findFirst({
@@ -58,6 +73,8 @@ router.post('/reminders', async (req: AuthRequest, res) => {
         triggerType: triggerType as 'FIXED_DATE' | 'RELATIVE_TO_JOIN',
         triggerValue,
         isActive,
+        sendFrom: sendFrom || null,
+        sendUntil: sendUntil || null,
         ownerId: req.userId!,
       },
       include: {
@@ -74,11 +91,18 @@ router.post('/reminders', async (req: AuthRequest, res) => {
 
 router.put('/reminders/:id', async (req: AuthRequest, res) => {
   try {
-    const { templateId, buildingId, triggerType, triggerValue, isActive } = req.body;
+    const { templateId, buildingId, triggerType, triggerValue, isActive, sendFrom, sendUntil } = req.body;
 
     const VALID_TRIGGER_TYPES = ['FIXED_DATE', 'RELATIVE_TO_JOIN'] as const;
     if (triggerType && !VALID_TRIGGER_TYPES.includes(triggerType as typeof VALID_TRIGGER_TYPES[number])) {
       return res.status(400).json({ error: 'Invalid trigger type' });
+    }
+
+    if (sendFrom !== undefined && sendFrom !== '' && !/^\d{2}:\d{2}$/.test(sendFrom)) {
+      return res.status(400).json({ error: 'sendFrom must be in HH:MM format' });
+    }
+    if (sendUntil !== undefined && sendUntil !== '' && !/^\d{2}:\d{2}$/.test(sendUntil)) {
+      return res.status(400).json({ error: 'sendUntil must be in HH:MM format' });
     }
 
     const reminder = await prisma.scheduledReminder.findFirst({
@@ -86,6 +110,16 @@ router.put('/reminders/:id', async (req: AuthRequest, res) => {
     });
     if (!reminder) {
       return res.status(404).json({ error: 'Reminder not found' });
+    }
+
+    // BUG FIX: Validate FIXED_DATE triggerValue is in valid range (1-31)
+    const effectiveTriggerType = triggerType ?? reminder.triggerType;
+    const effectiveTriggerValue = triggerValue ?? reminder.triggerValue;
+    if (effectiveTriggerType === 'FIXED_DATE') {
+      const day = parseInt(effectiveTriggerValue, 10);
+      if (isNaN(day) || day < 1 || day > 31) {
+        return res.status(400).json({ error: 'Day of month must be between 1 and 31' });
+      }
     }
 
     const updated = await prisma.scheduledReminder.update({
@@ -96,6 +130,8 @@ router.put('/reminders/:id', async (req: AuthRequest, res) => {
         triggerType: triggerType ?? reminder.triggerType,
         triggerValue: triggerValue ?? reminder.triggerValue,
         isActive: isActive ?? reminder.isActive,
+        sendFrom: sendFrom !== undefined ? (sendFrom || null) : reminder.sendFrom,
+        sendUntil: sendUntil !== undefined ? (sendUntil || null) : reminder.sendUntil,
       },
       include: {
         template: { select: { id: true, name: true, templateText: true } },

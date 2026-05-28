@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useTenantStore, useBuildingStore, useCustomFieldStore } from '../store';
-import { Plus, Pencil, Trash2, X, Users, Search } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, Users, Search, Upload, FileText, Check, AlertCircle } from 'lucide-react';
+import api from '../services/api';
 
 export default function Tenants() {
   const { tenants, loading, fetchTenants, createTenant, updateTenant, deleteTenant } = useTenantStore();
@@ -9,6 +10,18 @@ export default function Tenants() {
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importBuildingId, setImportBuildingId] = useState('');
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    success: boolean;
+    total: number;
+    imported: number;
+    failed: number;
+    errors: { row: number; field: string; value: string; message: string }[];
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     buildingId: '',
     name: '',
@@ -39,6 +52,73 @@ export default function Tenants() {
     });
     setEditingId(null);
     setShowModal(true);
+  };
+
+  const openImportModal = () => {
+    setImportBuildingId(buildings[0]?.id || '');
+    setImportFile(null);
+    setImportResult(null);
+    setShowImportModal(true);
+  };
+
+  const downloadTemplate = async () => {
+    try {
+      const response = await api.get('/tenants/template', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'tenant_import_template.csv');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // BUG FIX: revoke the URL to prevent memory leak
+      window.URL.revokeObjectURL(url);
+    } catch {
+      alert('Failed to download template');
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.name.match(/\.(csv|txt)$/i)) {
+        alert('Please select a CSV file');
+        return;
+      }
+      setImportFile(file);
+      setImportResult(null);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importFile || !importBuildingId) {
+      alert('Please select a file and building');
+      return;
+    }
+    setImportLoading(true);
+    setImportResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', importFile);
+      formData.append('buildingId', importBuildingId);
+      const { data } = await api.post('/tenants/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setImportResult(data);
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'Failed to import tenants');
+    }
+    setImportLoading(false);
+  };
+
+  const closeImportModal = () => {
+    const currentResult = importResult;
+    setShowImportModal(false);
+    setImportFile(null);
+    setImportResult(null);
+    if (currentResult && currentResult.imported > 0) {
+      fetchTenants();
+    }
   };
 
   const openEdit = (tenant: typeof tenants[0]) => {
@@ -102,9 +182,14 @@ export default function Tenants() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Tenants</h1>
-        <button onClick={openCreate} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-          <Plus size={20} /> Add Tenant
-        </button>
+        <div className="flex gap-2">
+          <button onClick={openImportModal} className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
+            <Upload size={20} /> Import CSV
+          </button>
+          <button onClick={openCreate} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+            <Plus size={20} /> Add Tenant
+          </button>
+        </div>
       </div>
 
       <div className="relative mb-4">
@@ -295,6 +380,122 @@ export default function Tenants() {
                 <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg">{editingId ? 'Update' : 'Create'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Import Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto py-8">
+          <div className="bg-white p-6 rounded-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Import Tenants from CSV</h2>
+              <button onClick={closeImportModal} className="p-1 hover:bg-slate-100 rounded">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <button
+                onClick={downloadTemplate}
+                className="flex items-center gap-2 text-blue-600 hover:underline text-sm"
+              >
+                <FileText size={16} /> Download CSV Template
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Building</label>
+              <select
+                value={importBuildingId}
+                onChange={(e) => setImportBuildingId(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg"
+                required
+              >
+                <option value="">Select Building</option>
+                {buildings.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-700 mb-1">CSV File</label>
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept=".csv"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center cursor-pointer hover:border-blue-400 hover:bg-slate-50"
+              >
+                {importFile ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <FileText size={20} className="text-blue-600" />
+                    <span className="text-sm">{importFile.name}</span>
+                  </div>
+                ) : (
+                  <div className="text-slate-400">
+                    <Upload size={24} className="mx-auto mb-2" />
+                    <p className="text-sm">Tap to select a CSV file</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {importResult && (
+              <div className={`mb-4 p-4 rounded-lg ${importResult.success ? 'bg-green-50' : importResult.failed > 0 ? 'bg-yellow-50' : 'bg-red-50'}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  {importResult.success ? (
+                    <Check size={20} className="text-green-600" />
+                  ) : (
+                    <AlertCircle size={20} className="text-yellow-600" />
+                  )}
+                  <span className={`font-medium ${importResult.success ? 'text-green-700' : 'text-yellow-700'}`}>
+                    {importResult.success ? 'Import Successful!' : 'Import Completed with Errors'}
+                  </span>
+                </div>
+                <div className="text-sm space-y-1">
+                  <p className="text-green-700">Imported: {importResult.imported} tenants</p>
+                  {importResult.failed > 0 && (
+                    <p className="text-red-600">Failed: {importResult.failed} rows</p>
+                  )}
+                </div>
+                {importResult.errors.length > 0 && (
+                  <div className="mt-3 max-h-40 overflow-y-auto">
+                    <p className="text-sm font-medium text-slate-700 mb-1">Errors:</p>
+                    {importResult.errors.slice(0, 10).map((err, idx) => (
+                      <p key={idx} className="text-xs text-red-600">
+                        Row {err.row}: {err.message}
+                      </p>
+                    ))}
+                    {importResult.errors.length > 10 && (
+                      <p className="text-xs text-slate-500">
+                        ...and {importResult.errors.length - 10} more errors
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-2 justify-end pt-4">
+              <button type="button" onClick={closeImportModal} className="px-4 py-2 border rounded-lg">
+                {(importResult && importResult.imported > 0) ? 'Done' : 'Cancel'}
+              </button>
+              {(!importResult || importResult.failed > 0) && (
+                <button
+                  onClick={handleImport}
+                  disabled={!importFile || !importBuildingId || importLoading}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-slate-300"
+                >
+                  {importLoading ? 'Importing...' : 'Import Tenants'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

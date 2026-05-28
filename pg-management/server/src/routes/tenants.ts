@@ -1,10 +1,24 @@
 import { Router } from 'express';
 import { prisma } from '../index.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import multer from 'multer';
+import { parse } from 'csv-parse';
 
 const router = Router();
 
 router.use(authMiddleware);
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (_, file, cb) => {
+    if (!file.originalname.match(/\.(csv|txt)$/i)) {
+      return cb(new Error('Only CSV files are allowed'));
+    }
+    cb(null, true);
+  },
+});
 
 router.get('/', async (req: AuthRequest, res) => {
   try {
@@ -64,6 +78,14 @@ router.post('/', async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'Invalid phone number format. Use 10+ digits with optional + prefix.' });
     }
 
+    // BUG #9 FIX: validate floor is >= 1
+    if (floor !== undefined && floor !== null) {
+      const floorNum = parseInt(floor, 10);
+      if (isNaN(floorNum) || floorNum < 1) {
+        return res.status(400).json({ error: 'Floor must be at least 1' });
+      }
+    }
+
     const building = await prisma.building.findFirst({
       where: { id: buildingId, ownerId: req.userId },
     });
@@ -103,6 +125,14 @@ router.put('/:id', async (req: AuthRequest, res) => {
     });
     if (!tenant) {
       return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    // BUG #9 FIX: validate floor is >= 1
+    if (floor !== undefined && floor !== null) {
+      const floorNum = parseInt(floor, 10);
+      if (isNaN(floorNum) || floorNum < 1) {
+        return res.status(400).json({ error: 'Floor must be at least 1' });
+      }
     }
 
     // Validate building ownership if buildingId is being changed
@@ -153,6 +183,159 @@ router.delete('/:id', async (req: AuthRequest, res) => {
     res.json({ message: 'Tenant deleted' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete tenant' });
+  }
+});
+
+// FEATURE: Import tenants from CSV
+router.post('/import', upload.single('file'), async (req: AuthRequest, res) => {
+  try {
+    const { buildingId } = req.body;
+
+    if (!buildingId) {
+      return res.status(400).json({ error: 'Building ID is required' });
+    }
+
+    // Validate building ownership
+    const building = await prisma.building.findFirst({
+      where: { id: buildingId, ownerId: req.userId },
+    });
+    if (!building) {
+      return res.status(404).json({ error: 'Building not found or access denied' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'CSV file is required' });
+    }
+
+    // Get custom fields for the owner to map custom field columns
+    const customFields = await prisma.customField.findMany({
+      where: { ownerId: req.userId },
+    });
+
+    // Parse CSV
+    const records: any[] = [];
+    const parser = parse(req.file.buffer.toString(), {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      bom: true,
+    });
+
+    for await (const record of parser) {
+      records.push(record);
+    }
+
+    if (records.length === 0) {
+      return res.status(400).json({ error: 'CSV file is empty' });
+    }
+
+    // Validate and prepare tenants
+    const errors: { row: number; field: string; value: string; message: string }[] = [];
+    const validTenants: any[] = [];
+    const phoneRegex = /^\+?[1-9]\d{6,14}$/;
+
+    for (let i = 0; i < records.length; i++) {
+      const row = records[i];
+      const rowNum = i + 2; // +2 because row 1 is headers, row 2 is first data row
+      const rowErrors: typeof errors = [];
+
+      // Required fields
+      const name = (row.name || row.Name || row.NAME || '').trim();
+      const phone = (row.phone || row.Phone || row.PHONE || row.mobile || row.Mobile || '').replace(/[^\d+]/g, '');
+      const roomNumber = (row.roomNumber || row.room_number || row.Room || row.RoomNumber || '').trim();
+
+      // Optional fields
+      const floorStr = row.floor || row.Floor || '1';
+      const floor = parseInt(floorStr, 10) || 1;
+      const rentAmountStr = row.rentAmount || row.rent_amount || row.Rent || row.rent || '';
+      const rentAmount = rentAmountStr ? parseFloat(rentAmountStr) : null;
+      const joinDateStr = row.joinDate || row.join_date || row.JoinDate || row.joined || '';
+      const joinDate = joinDateStr ? new Date(joinDateStr) : null;
+
+      // Validate required fields
+      if (!name) {
+        rowErrors.push({ row: rowNum, field: 'name', value: row.name || '', message: 'Name is required' });
+      }
+      if (!phone) {
+        rowErrors.push({ row: rowNum, field: 'phone', value: row.phone || '', message: 'Phone number is required' });
+      } else if (!phoneRegex.test(phone)) {
+        rowErrors.push({ row: rowNum, field: 'phone', value: phone, message: 'Phone must be 7-15 digits' });
+      }
+      if (!roomNumber) {
+        rowErrors.push({ row: rowNum, field: 'roomNumber', value: row.roomNumber || '', message: 'Room number is required' });
+      }
+
+      // Collect custom field values
+      const customFieldValues: Record<string, any> = {};
+      for (const field of customFields) {
+        const value = row[field.fieldName] || row[field.fieldName.toLowerCase()] || '';
+        if (value) {
+          customFieldValues[field.fieldName] = value.trim();
+        }
+      }
+
+      if (rowErrors.length > 0) {
+        errors.push(...rowErrors);
+      } else {
+        validTenants.push({
+          buildingId,
+          ownerId: req.userId!,
+          name,
+          phone,
+          roomNumber,
+          floor,
+          rentAmount: isNaN(rentAmount as any) ? null : rentAmount,
+          joinDate,
+          isActive: true,
+          customFieldValues,
+        });
+      }
+    }
+
+    // Bulk insert valid tenants
+    let imported = 0;
+    if (validTenants.length > 0) {
+      await prisma.tenant.createMany({
+        data: validTenants,
+        skipDuplicates: true, // Skip if phone + roomNumber already exists
+      });
+      imported = validTenants.length;
+    }
+
+    res.json({
+      success: errors.length === 0,
+      total: records.length,
+      imported,
+      failed: errors.length,
+      errors,
+    });
+  } catch (error) {
+    console.error('CSV import error:', error);
+    res.status(500).json({ error: 'Failed to import tenants from CSV' });
+  }
+});
+
+// GET /tenants/template - Download CSV template
+router.get('/template', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const customFields = await prisma.customField.findMany({
+      where: { ownerId: req.userId },
+    });
+
+    const headers = ['name', 'phone', 'roomNumber', 'floor', 'rentAmount', 'joinDate'];
+    const customFieldNames = customFields.map(f => f.fieldName);
+
+    const csvRows = [
+      headers.join(','),
+      `John Doe,9876543210,101,1,5000,2024-01-15${customFieldNames.length > 0 ? ',' + customFieldNames.join(',') : ''}`,
+      `Jane Smith,9876543211,102,1,5500,2024-02-01${customFieldNames.length > 0 ? ',' + customFieldNames.map(() => 'value').join(',') : ''}`,
+    ];
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=tenant_import_template.csv');
+    res.send(csvRows.join('\n'));
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to generate template' });
   }
 });
 

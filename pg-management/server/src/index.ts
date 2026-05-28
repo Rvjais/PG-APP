@@ -51,10 +51,16 @@ app.use(cors({
       callback(null, true);
       return;
     }
-    // Allow development origins
-    if (origin.includes('localhost')) {
-      callback(null, true);
-      return;
+    // BUG FIX: Only allow localhost in development, not production
+    // Use proper hostname check instead of substring match
+    if (process.env.NODE_ENV !== 'production') {
+      try {
+        const url = new URL(origin);
+        if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+          callback(null, true);
+          return;
+        }
+      } catch {}
     }
     // Block unknown origins in production
     if (process.env.NODE_ENV === 'production') {
@@ -74,7 +80,7 @@ app.use('/api/tenants', tenantRoutes);
 app.use('/api/custom-fields', customFieldRoutes);
 app.use('/api/templates', templateRoutes);
 app.use('/api/messages', messageRoutes);
-app.use('/api/scheduler', schedulerRoutes);
+app.use('/api/scheduler/reminders', schedulerRoutes);
 app.use('/api/scheduler', schedulerTriggerRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/settings', settingsRoutes);

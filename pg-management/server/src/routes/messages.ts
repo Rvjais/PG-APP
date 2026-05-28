@@ -66,9 +66,9 @@ router.post('/bulk', async (req: AuthRequest, res) => {
     if (floor) { const f = parseInt(floor); if (!isNaN(f)) where.floor = f; }
     if (tenantIds && tenantIds.length > 0) where.id = { in: tenantIds };
 
-    const tenants = await prisma.tenant.findMany({ 
+    const tenants = await prisma.tenant.findMany({
       where,
-      include: { building: { select: { name: true } } },
+      include: { building: { select: { name: true } }, owner: { select: { name: true } } },
     });
 
     const user = await prisma.user.findUnique({
@@ -120,10 +120,13 @@ router.post('/bulk', async (req: AuthRequest, res) => {
 
 router.get('/logs', async (req: AuthRequest, res) => {
   try {
-    const { tenantId, limit = 50 } = req.query;
+    const { tenantId, limit = 50, cursor } = req.query;
+    const parsedLimit = Math.min(parseInt(limit as string, 10) || 50, 200);
+
     const where: any = { ownerId: req.userId };
     if (tenantId) where.tenantId = tenantId as string;
 
+    // BUG #8 FIX: add cursor-based pagination for message logs
     const logs = await prisma.messageLog.findMany({
       where,
       include: {
@@ -132,9 +135,24 @@ router.get('/logs', async (req: AuthRequest, res) => {
         },
       },
       orderBy: { sentAt: 'desc' },
-      take: parseInt(limit as string, 10),
+      take: parsedLimit + 1, // Fetch one extra to determine if there's a next page
+      ...(cursor && { cursor: { id: cursor as string }, skip: 1 }),
     });
-    res.json(logs);
+
+    // Check if there are more results
+    const hasMore = logs.length > parsedLimit;
+    if (hasMore) logs.pop();
+
+    const nextCursor = hasMore && logs.length > 0 ? logs[logs.length - 1].id : null;
+
+    res.json({
+      logs,
+      pagination: {
+        hasMore,
+        nextCursor,
+        limit: parsedLimit,
+      },
+    });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch logs' });
   }

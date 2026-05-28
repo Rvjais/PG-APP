@@ -55,6 +55,8 @@ export interface ScheduledReminder {
   templateId: string;
   triggerType: 'FIXED_DATE' | 'RELATIVE_TO_JOIN';
   triggerValue: string;
+  sendFrom?: string;
+  sendUntil?: string;
   isActive: boolean;
   template?: MessageTemplate;
   building?: { id: string; name: string };
